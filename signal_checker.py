@@ -171,15 +171,33 @@ def main():
         entry = calculate_entry(df)
 
         # ✅ 買い候補
-        if total >= 3:
-            messages.append(
-                f"""✅ 買い候補
+       if total >= 3:
+    price = df.iloc[-1]["close"]
+
+    # ✅ エントリー（買い指値）
+    entry = calculate_entry(df)
+
+    # ✅ 利確（ターゲット）
+    tp = df["close"].rolling(20).max().iloc[-1]
+
+    # ✅ 損切り
+    sl = entry * 0.95
+
+    # ✅ トレーリング
+    ts = df["close"].rolling(10).max().iloc[-1] * 0.95
+
+    messages.append(
+        f"""✅ 買い候補
 {symbol}
-現在価格: {round(price, 2)}
-指値目安: {entry}
-スコア: {total}
+
+現在価格: {round(price,2)}
+指値（買い）: {round(entry,2)}
+
+🎯 利確: {round(tp,2)}
+🛑 損切り: {round(sl,2)}
+📈 トレーリング: {round(ts,2)}
 """
-            )
+    )
 
         # ✅ 売りシグナル
         sell_signals = sell_logic(df)
