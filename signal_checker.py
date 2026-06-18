@@ -3,10 +3,8 @@ import requests
 import os
 import pandas as pd
 import random
+from datetime import datetime
 
-# =========================
-# 環境変数
-# =========================
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
@@ -24,23 +22,17 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-
-    res = requests.post(url, headers=headers, json=data)
-    print("LINE STATUS:", res.status_code)
+    requests.post(url, headers=headers, json=data)
 
 
 # =========================
-# 銘柄自動取得（S&P500）
+# S&P500取得
 # =========================
 def get_symbols():
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     table = pd.read_html(url)[0]
-
     symbols = table["Symbol"].tolist()
-
-    # 変な.symbol削除
     symbols = [s.replace(".", "-") for s in symbols]
-
     return symbols
 
 
@@ -55,9 +47,7 @@ def get_data(symbol):
         return None, None
 
     df = df.rename(columns={"Close": "close"})
-    info = stock.info
-
-    return df, info
+    return df, stock.info
 
 
 # =========================
@@ -70,19 +60,17 @@ def calc_indicators(df):
     delta = df["close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
-
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
     ema12 = df["close"].ewm(span=12).mean()
     ema26 = df["close"].ewm(span=26).mean()
-
     df["MACD"] = ema12 - ema26
     df["Signal"] = df["MACD"].ewm(span=9).mean()
 
-    # ✅ ATR
-    df["tr"] = (df["High"] - df["Low"]).abs()
-    df["ATR"] = df["tr"].rolling(14).mean()
+    # ATR
+    df["TR"] = (df["High"] - df["Low"]).abs()
+    df["ATR"] = df["TR"].rolling(14).mean()
 
     return df
 
@@ -93,23 +81,21 @@ def calc_indicators(df):
 def fundamental_check(info):
     score = 0
 
-    if info is None:
-        return 0
+    if info:
+        pe = info.get("trailingPE")
+        growth = info.get("revenueGrowth")
 
-    pe = info.get("trailingPE")
-    growth = info.get("revenueGrowth")
+        if pe and pe < 30:
+            score += 1
 
-    if pe and pe < 30:
-        score += 1
-
-    if growth and growth > 0.1:
-        score += 1
+        if growth and growth > 0.1:
+            score += 1
 
     return score
 
 
 # =========================
-# 買いロジック
+# 買い
 # =========================
 def buy_logic(df):
     latest = df.iloc[-1]
@@ -130,7 +116,7 @@ def buy_logic(df):
 
 
 # =========================
-# 売りロジック
+# 売り
 # =========================
 def sell_logic(df):
     latest = df.iloc[-1]
@@ -158,8 +144,7 @@ def entry_price(df):
 
 
 def atr_stop(df, entry):
-    atr = df.iloc[-1]["ATR"]
-    return round(entry - (atr * 2), 2)
+    return round(entry - df.iloc[-1]["ATR"] * 2, 2)
 
 
 def take_profit(df):
@@ -175,17 +160,29 @@ def trailing(df):
 # =========================
 def main():
     messages = []
+    logs = []
 
     symbols = get_symbols()
 
-    # ✅ ランダム抽出（軽量化）
-    symbols = random.sample(symbols, 30)
+    # ✅ 全体から50銘柄
+    symbols = random.sample(symbols, 50)
 
+    candidates = []
+
+    # ✅ 動いてる銘柄選定
     for symbol in symbols:
         df, info = get_data(symbol)
 
-        if df is None or len(df) < 50:
+        if df is None or len(df) < 20:
             continue
+
+        change = (df["close"].iloc[-1] - df["close"].iloc[-5]) / df["close"].iloc[-5]
+        candidates.append((symbol, change, df, info))
+
+    # ✅ 上位15銘柄
+    candidates = sorted(candidates, key=lambda x: x[1], reverse=True)[:15]
+
+    for symbol, change, df, info in candidates:
 
         df = calc_indicators(df)
 
@@ -195,7 +192,9 @@ def main():
         total = buy_score + fund_score
         price = df.iloc[-1]["close"]
 
-        # ✅ 買い
+        # =====================
+        # BUY
+        # =====================
         if total >= 3:
             entry = entry_price(df)
             sl = atr_stop(df, entry)
@@ -206,36 +205,46 @@ def main():
                 f"""✅ 買い候補
 {symbol}
 
-現在価格: {round(price,2)}
+価格: {round(price,2)}
 指値: {entry}
 
 🎯 利確: {tp}
-🛑 損切り(ATR): {sl}
-📈 トレーリング: {ts}
+🛑 損切り: {sl}
+📈 TS: {ts}
 """
             )
 
-        # ✅ 売り
+            logs.append([datetime.now(), symbol, "BUY", price])
+
+        # =====================
+        # SELL
+        # =====================
         sell_signals = sell_logic(df)
 
         if sell_signals:
             messages.append(
-                f"""⚠️ 売りシグナル
+                f"""⚠️ 売り
 {symbol}
 
-現在価格: {round(price,2)}
+価格: {round(price,2)}
 理由: {", ".join(sell_signals)}
 """
             )
 
+            logs.append([datetime.now(), symbol, "SELL", price])
+
+    # ✅ ログ保存
+    if logs:
+        pd.DataFrame(logs, columns=["time", "symbol", "type", "price"]).to_csv(
+            "trade_log.csv", index=False
+        )
+
+    # ✅ LINE
     if messages:
         send_line("📊 市場スキャン結果\n\n" + "\n".join(messages))
     else:
         print("シグナルなし")
 
 
-# =========================
-# 実行
-# =========================
 if __name__ == "__main__":
     main()
