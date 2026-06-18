@@ -2,7 +2,7 @@ name: daily_signal
 
 on:
   schedule:
-    - cron: '0 13 * * *'   # 日本時間22:00
+    - cron: '0 13 * * *'
   workflow_dispatch:
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install requests pandas yfinance
+        run: pip install -r requirements.txt
 
       - name: Run script
         run: python signal_checker.py
