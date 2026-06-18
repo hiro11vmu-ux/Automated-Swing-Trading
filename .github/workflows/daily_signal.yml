@@ -2,7 +2,7 @@ name: daily_signal
 
 on:
   schedule:
-    - cron: '0 13 * * *'
+    - cron: '0 13 * * *'   # 日本時間22:00
   workflow_dispatch:
 
 jobs:
@@ -26,3 +26,6 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+``
