@@ -2,8 +2,8 @@ name: daily_signal
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # ← 毎日22:00
-  workflow_dispatch:       # ← 手動も残す
+    - cron: '0 13 * * *'   # 日本時間22:00
+  workflow_dispatch:
 
 jobs:
   run:
