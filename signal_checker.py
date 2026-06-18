@@ -2,15 +2,13 @@ import yfinance as yf
 import requests
 import os
 import pandas as pd
+import random
 
 # =========================
 # 環境変数
 # =========================
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
-
-# ✅ スキャン銘柄
-SYMBOLS = ["NVDA", "AAPL", "MSFT", "AMZN", "META"]
 
 
 # =========================
@@ -27,7 +25,23 @@ def send_line(message):
         "messages": [{"type": "text", "text": message}]
     }
 
-    requests.post(url, headers=headers, json=data)
+    res = requests.post(url, headers=headers, json=data)
+    print("LINE STATUS:", res.status_code)
+
+
+# =========================
+# 銘柄自動取得（S&P500）
+# =========================
+def get_symbols():
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    table = pd.read_html(url)[0]
+
+    symbols = table["Symbol"].tolist()
+
+    # 変な.symbol削除
+    symbols = [s.replace(".", "-") for s in symbols]
+
+    return symbols
 
 
 # =========================
@@ -35,7 +49,6 @@ def send_line(message):
 # =========================
 def get_data(symbol):
     stock = yf.Ticker(symbol)
-
     df = stock.history(period="3mo")
 
     if df is None or df.empty:
@@ -63,13 +76,12 @@ def calc_indicators(df):
 
     ema12 = df["close"].ewm(span=12).mean()
     ema26 = df["close"].ewm(span=26).mean()
+
     df["MACD"] = ema12 - ema26
     df["Signal"] = df["MACD"].ewm(span=9).mean()
 
-    # ✅ ATR（プロ損切り）
-    df["high"] = df["High"]
-    df["low"] = df["Low"]
-    df["tr"] = (df["high"] - df["low"]).abs()
+    # ✅ ATR
+    df["tr"] = (df["High"] - df["Low"]).abs()
     df["ATR"] = df["tr"].rolling(14).mean()
 
     return df
@@ -97,7 +109,7 @@ def fundamental_check(info):
 
 
 # =========================
-# 買い判定
+# 買いロジック
 # =========================
 def buy_logic(df):
     latest = df.iloc[-1]
@@ -118,7 +130,7 @@ def buy_logic(df):
 
 
 # =========================
-# 売り判定
+# 売りロジック
 # =========================
 def sell_logic(df):
     latest = df.iloc[-1]
@@ -139,30 +151,21 @@ def sell_logic(df):
 
 
 # =========================
-# エントリー
+# 戦略
 # =========================
 def entry_price(df):
     return round(df.iloc[-1]["SMA20"], 2)
 
 
-# =========================
-# ATR損切り
-# =========================
 def atr_stop(df, entry):
     atr = df.iloc[-1]["ATR"]
     return round(entry - (atr * 2), 2)
 
 
-# =========================
-# 利確
-# =========================
 def take_profit(df):
     return round(df["close"].rolling(20).max().iloc[-1], 2)
 
 
-# =========================
-# トレーリング
-# =========================
 def trailing(df):
     return round(df["close"].rolling(10).max().iloc[-1] * 0.95, 2)
 
@@ -173,7 +176,12 @@ def trailing(df):
 def main():
     messages = []
 
-    for symbol in SYMBOLS:
+    symbols = get_symbols()
+
+    # ✅ ランダム抽出（軽量化）
+    symbols = random.sample(symbols, 30)
+
+    for symbol in symbols:
         df, info = get_data(symbol)
 
         if df is None or len(df) < 50:
@@ -185,10 +193,9 @@ def main():
         fund_score = fundamental_check(info)
 
         total = buy_score + fund_score
-
         price = df.iloc[-1]["close"]
 
-        # ✅ 買い（←ここが重要：forの中！）
+        # ✅ 買い
         if total >= 3:
             entry = entry_price(df)
             sl = atr_stop(df, entry)
@@ -202,14 +209,33 @@ def main():
 現在価格: {round(price,2)}
 指値: {entry}
 
-🎯 利確: {round(tp,2)}
-🛑 損切り(ATR): {round(sl,2)}
-📈 トレーリング: {round(ts,2)}
+🎯 利確: {tp}
+🛑 損切り(ATR): {sl}
+📈 トレーリング: {ts}
 """
             )
 
-    # ✅ これもmainの中
+        # ✅ 売り
+        sell_signals = sell_logic(df)
+
+        if sell_signals:
+            messages.append(
+                f"""⚠️ 売りシグナル
+{symbol}
+
+現在価格: {round(price,2)}
+理由: {", ".join(sell_signals)}
+"""
+            )
+
     if messages:
         send_line("📊 市場スキャン結果\n\n" + "\n".join(messages))
     else:
         print("シグナルなし")
+
+
+# =========================
+# 実行
+# =========================
+if __name__ == "__main__":
+    main()
