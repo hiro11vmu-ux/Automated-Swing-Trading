@@ -1,7 +1,9 @@
 name: daily_signal
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 22 * * *'  # ← 毎日22:00
+  workflow_dispatch:       # ← 手動も残す
 
 jobs:
   run:
@@ -17,11 +19,10 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install requests pandas
+        run: pip install requests pandas yfinance
 
       - name: Run script
         run: python signal_checker.py
         env:
-          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
