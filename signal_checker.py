@@ -196,5 +196,4 @@ def main():
 # ✅ これも必要
 if __name__ == "__main__":
     main()
-``
 
