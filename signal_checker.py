@@ -171,7 +171,7 @@ def main():
         entry = calculate_entry(df)
 
         # ✅ 買い候補
-       if total >= 3:
+        if total >= 3:
     price = df.iloc[-1]["close"]
 
     # ✅ エントリー（買い指値）
