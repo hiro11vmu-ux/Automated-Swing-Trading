@@ -155,49 +155,39 @@ def main():
     messages = []
 
     for symbol in SYMBOLS:
-        df, info = get_data(symbol)
+    df, info = get_data(symbol)
 
-        if df is None or len(df) < 50:
-            continue
+    if df is None:
+        continue
 
-        df = calc_indicators(df)
+    df = calc_indicators(df)
 
-        buy_score = buy_logic(df)
-        fund_score = fundamental_check(info)
+    buy_score = buy_logic(df)
+    fund_score = fundamental_check(info)
 
-        total = buy_score + fund_score
+    total = buy_score + fund_score
 
+    # ✅ ここ（同じ位置に揃える）
+    if total >= 3:
         price = df.iloc[-1]["close"]
+
         entry = calculate_entry(df)
+        tp = df["close"].rolling(20).max().iloc[-1]
+        sl = entry * 0.95
+        ts = df["close"].rolling(10).max().iloc[-1] * 0.95
 
-        # ✅ 買い候補
-        if total >= 3:
-    price = df.iloc[-1]["close"]
-
-    # ✅ エントリー（買い指値）
-    entry = calculate_entry(df)
-
-    # ✅ 利確（ターゲット）
-    tp = df["close"].rolling(20).max().iloc[-1]
-
-    # ✅ 損切り
-    sl = entry * 0.95
-
-    # ✅ トレーリング
-    ts = df["close"].rolling(10).max().iloc[-1] * 0.95
-
-    messages.append(
-        f"""✅ 買い候補
+        messages.append(
+            f"""✅ 買い候補
 {symbol}
 
 現在価格: {round(price,2)}
-指値（買い）: {round(entry,2)}
+指値: {round(entry,2)}
 
 🎯 利確: {round(tp,2)}
 🛑 損切り: {round(sl,2)}
 📈 トレーリング: {round(ts,2)}
 """
-    )
+        )
 
         # ✅ 売りシグナル
         sell_signals = sell_logic(df)
