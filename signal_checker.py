@@ -1,59 +1,92 @@
 import requests
 import os
 
+# =============================
 # 環境変数
+# =============================
 API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
+print("ENV CHECK:")
+print("API KEY:", "OK" if API_KEY else "MISSING")
+print("LINE TOKEN:", "OK" if LINE_TOKEN else "MISSING")
+print("USER ID:", USER_ID)
 
-# -----------------------------
-# LINE送信（デバッグ付き）
-# -----------------------------
+
+# =============================
+# LINE送信（絶対落ちない）
+# =============================
 def send_line(message):
-    print("DEBUG: SENDING LINE")
+    print("DEBUG: TRY SEND LINE")
 
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {
-        "Authorization": f"Bearer {LINE_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "to": USER_ID,
-        "messages": [{"type": "text", "text": message}]
-    }
+    try:
+        url = "https://api.line.me/v2/bot/message/push"
+        headers = {
+            "Authorization": f"Bearer {LINE_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "to": USER_ID,
+            "messages": [{"type": "text", "text": message}]
+        }
 
-    res = requests.post(url, headers=headers, json=data)
+        res = requests.post(url, headers=headers, json=data)
 
-    print("LINE STATUS:", res.status_code)
-    print("LINE RESPONSE:", res.text)
+        print("LINE STATUS:", res.status_code)
+        print("LINE RESPONSE:", res.text)
+
+    except Exception as e:
+        print("LINE ERROR:", str(e))
 
 
-# -----------------------------
-# メイン
-# -----------------------------
+# =============================
+# MAIN
+# =============================
 def main():
     print("🚀 START")
 
-    symbol = "AAPL"
+    try:
+        # -----------------
+        # API取得
+        # -----------------
+        symbol = "AAPL"  # ←確実に動く銘柄
 
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={API_KEY}"
-    r = requests.get(url).json()
+        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={API_KEY}"
+        r = requests.get(url).json()
 
-    print("API:", r)
+        print("API RESPONSE:")
+        print(r)
 
-    # ✅ まず強制送信（ここでLINEテスト）
-    send_line("🚀 テスト送信 from BOT")
+        # -----------------
+        # 強制送信テスト
+        # -----------------
+        send_line("🚀 BOTテスト確認①")
 
-    if "Time Series (Daily)" not in r:
-        send_line("❌ API失敗")
-        return
+        # -----------------
+        # データチェック
+        # -----------------
+        if "Time Series (Daily)" not in r:
+            send_line("❌ APIデータ取得失敗")
+            return
 
-    # 最新価格取得
-    latest_date = list(r["Time Series (Daily)"].keys())[0]
-    price = r["Time Series (Daily)"][latest_date]["4. close"]
+        # -----------------
+        # 最新価格取得
+        # -----------------
+        ts = r["Time Series (Daily)"]
+        latest_date = list(ts.keys())[0]
+        price = ts[latest_date]["4. close"]
 
-    send_line(f"✅ AAPL価格: {price}")
+        print("PRICE:", price)
+
+        # -----------------
+        # 最終送信
+        # -----------------
+        send_line(f"✅ AAPL価格: {price}")
+
+    except Exception as e:
+        print("MAIN ERROR:", str(e))
+        send_line("❌ スクリプトエラー発生")
 
 
 if __name__ == "__main__":
