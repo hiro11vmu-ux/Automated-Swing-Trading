@@ -1,13 +1,12 @@
+import yfinance as yf
 import requests
 import os
 import pandas as pd
 
-# =============================
-# 環境変数
-# =============================
-API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
+
+SYMBOLS = ["NVDA", "AAPL", "MSFT", "AMZN", "META"]
 
 
 # =============================
@@ -23,39 +22,34 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-
-    res = requests.post(url, headers=headers, json=data)
-    print("LINE STATUS:", res.status_code)
+    requests.post(url, headers=headers, json=data)
 
 
 # =============================
-# データ取得
+# データ取得（株価＋ファンダ）
 # =============================
-def get_data():
-    symbol = "AAPL"
+def get_data(symbol):
+    stock = yf.Ticker(symbol)
 
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={API_KEY}"
-    r = requests.get(url).json()
+    df = stock.history(period="3mo")
 
-    if "Time Series (Daily)" not in r:
-        return None
+    if df.empty:
+        return None, None
 
-    df = pd.DataFrame.from_dict(r["Time Series (Daily)"], orient="index")
-    df["close"] = df["4. close"].astype(float)
-    df = df.sort_index()
+    df = df.rename(columns={"Close": "close"})
 
-    return df
+    info = stock.info
+
+    return df, info
 
 
 # =============================
-# 指標計算
+# 指標
 # =============================
 def calc_indicators(df):
-    # SMA
     df["SMA20"] = df["close"].rolling(20).mean()
     df["SMA50"] = df["close"].rolling(50).mean()
 
-    # RSI
     delta = df["close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
@@ -63,7 +57,6 @@ def calc_indicators(df):
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # MACD
     ema12 = df["close"].ewm(span=12).mean()
     ema26 = df["close"].ewm(span=26).mean()
 
@@ -74,89 +67,104 @@ def calc_indicators(df):
 
 
 # =============================
-# シグナル判定（強化版）
+# ファンダ判定
 # =============================
-def signal_logic(df):
+def fundamental_check(info):
+    try:
+        pe = info.get("trailingPE", None)
+        growth = info.get("revenueGrowth", None)
+
+        score = 0
+
+        if pe and pe < 30:
+            score += 1
+
+        if growth and growth > 0.1:
+            score += 1
+
+        return score
+
+    except:
+        return 0
+
+
+# =============================
+# テクニカル判定
+# =============================
+def technical_check(df):
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
     score = 0
 
-    # SMA
     if latest["SMA20"] > latest["SMA50"]:
-        sma = "強気"
         score += 1
-    else:
-        sma = "弱気"
 
-    # RSI
-    if latest["RSI"] < 30:
-        rsi = "強い買い"
-        score += 2
-    elif latest["RSI"] > 70:
-        rsi = "強い売り"
-        score -= 2
-    else:
-        rsi = "中立"
+    if latest["RSI"] < 35:
+        score += 1
 
-    # MACDクロス
     if prev["MACD"] <= prev["Signal"] and latest["MACD"] > latest["Signal"]:
-        macd = "ゴールデンクロス🔥"
         score += 2
-    elif prev["MACD"] >= prev["Signal"] and latest["MACD"] < latest["Signal"]:
-        macd = "デッドクロス❌"
-        score -= 2
-    else:
-        macd = "継続"
 
-    # 総合判定
-    if score >= 3:
-        final = "✅ 強い買い"
-    elif score <= -3:
-        final = "❌ 強い売り"
-    else:
-        final = "なし"
-
-    return final, sma, rsi, macd, latest["close"], score
+    return score
 
 
 # =============================
-# メイン
+# 指値（買いポイント）
+# =============================
+def calculate_entry(df):
+    latest = df.iloc[-1]
+
+    # ✅ 押し目（SMA20付近）
+    entry = latest["SMA20"]
+
+    return round(entry, 2)
+
+
+# =============================
+# MAIN
 # =============================
 def main():
-    print("🚀 START")
+    messages = []
 
-    df = get_data()
+    for symbol in SYMBOLS:
+        df, info = get_data(symbol)
 
-    if df is None:
-        send_line("❌ データ取得失敗")
-        return
+        if df is None or len(df) < 50:
+            continue
 
-    df = calc_indicators(df)
+        df = calc_indicators(df)
 
-    final, sma, rsi, macd, price, score = signal_logic(df)
+        tech_score = technical_check(df)
+        fund_score = fundamental_check(info)
 
-    # ✅ 強い時だけ通知
-    if final == "なし":
-        print("スキップ（弱いシグナル）")
-        return
+        total = tech_score + fund_score
 
-    message = f"""
-📊 AAPL 強シグナル
+        # ✅ 厳選
+        if total >= 3:
+            price = df.iloc[-1]["close"]
+            entry = calculate_entry(df)
 
-現在価格: {round(price, 2)}
+            messages.append(
+                f"""
+{symbol}
 
-スコア: {score}
+現在価格: {round(price,2)}
+指値目安: {entry}
 
-判定: {final}
+テク: {tech_score}
+ファンダ: {fund_score}
 
-SMA: {sma}
-RSI: {rsi}
-MACD: {macd}
+総合: ✅ 買い候補
 """
+            )
 
-    send_line(message)
+    if messages:
+        send_line("📊 厳選銘柄\n\n" + "\n".join(messages))
+    else:
+        print("対象なし")
 
 
 if __name__ == "__main__":
     main()
+``
