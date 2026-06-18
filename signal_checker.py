@@ -6,7 +6,6 @@ API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
-# --- LINE送信 ---
 def send_line(message):
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
@@ -19,7 +18,6 @@ def send_line(message):
     }
     requests.post(url, headers=headers, json=data)
 
-# --- データ取得 ---
 def get_data():
     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=AGIX&apikey={API_KEY}"
     r = requests.get(url).json()
@@ -32,20 +30,16 @@ def get_data():
 
     return df
 
-# --- 指標計算 ---
 def calc_indicators(df):
-    # SMA
     df["SMA20"] = df["close"].rolling(20).mean()
     df["SMA50"] = df["close"].rolling(50).mean()
 
-    # RSI
     delta = df["close"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # MACD
     ema12 = df["close"].ewm(span=12).mean()
     ema26 = df["close"].ewm(span=26).mean()
     df["MACD"] = ema12 - ema26
@@ -53,20 +47,16 @@ def calc_indicators(df):
 
     return df
 
-# --- 判定 ---
 def signal_logic(df):
     latest = df.iloc[-1]
-
     score = 0
 
-    # SMA
     if latest["SMA20"] > latest["SMA50"]:
         score += 1
         sma = "強気"
     else:
         sma = "弱気"
 
-    # RSI
     if latest["RSI"] < 30:
         score += 1
         rsi = "買い"
@@ -75,5 +65,40 @@ def signal_logic(df):
     else:
         rsi = "中立"
 
-    # MACD
     if latest["MACD"] > latest["Signal"]:
+        score += 1
+        macd = "強気"
+    else:
+        macd = "弱気"
+
+    if score >= 2:
+        final = "✅ 買い"
+    elif score == 1:
+        final = "⚖️ 中立"
+    else:
+        final = "❌ 売り"
+
+    return final, sma, rsi, macd, latest["close"]
+
+def main():
+    df = get_data()
+    df = calc_indicators(df)
+
+    final, sma, rsi, macd, price = signal_logic(df)
+
+    message = f"""
+📊 AGIX シグナル
+
+現在価格: {round(price,2)}
+
+総合判定: {final}
+
+SMA: {sma}
+RSI: {rsi}
+MACD: {macd}
+"""
+
+    send_line(message)
+
+if __name__ == "__main__":
+    main()
