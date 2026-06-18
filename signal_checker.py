@@ -1,3 +1,6 @@
+import sys
+print("🚀 RUNNING FILE:", __file__)
+
 import requests
 import os
 
