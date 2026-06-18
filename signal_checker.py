@@ -1,15 +1,10 @@
 import requests
 import os
-import pandas as pd
 
 API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
-
-# -----------------------------
-# LINE送信
-# -----------------------------
 def send_line(message):
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
@@ -24,39 +19,25 @@ def send_line(message):
     res = requests.post(url, headers=headers, json=data)
     print("LINE RESPONSE:", res.text)
 
+def main():
+    print("🚀 START")
 
-# -----------------------------
-# データ取得（確実に動く銘柄）
-# -----------------------------
-def get_data():
-    symbol = "AAPL"   # ←ここが重要（確実にデータ取れる）
+    symbol = "AAPL"
 
     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={API_KEY}"
     r = requests.get(url).json()
 
-    print("API RESPONSE:", r)
+    print("API:", r)
 
     if "Time Series (Daily)" not in r:
-        return None
+        send_line("❌ API失敗")
+        return
 
-    ts = r["Time Series (Daily)"]
+    # 価格だけ取得（シンプル）
+    latest_date = list(r["Time Series (Daily)"].keys())[0]
+    price = r["Time Series (Daily)"][latest_date]["4. close"]
 
-    df = pd.DataFrame.from_dict(ts, orient="index")
-    df = df.rename(columns={"4. close": "close"})
-    df["close"] = df["close"].astype(float)
-    df = df.sort_index()
+    send_line(f"✅ AAPL価格: {price}")
 
-    return df
-
-
-# -----------------------------
-# 指標
-# -----------------------------
-def calc_indicators(df):
-    df["SMA20"] = df["close"].rolling(20).mean()
-    df["SMA50"] = df["close"].rolling(50).mean()
-
-    delta = df["close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-
+if __name__ == "__main__":
+    main()
