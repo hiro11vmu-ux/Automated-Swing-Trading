@@ -7,7 +7,7 @@ from datetime import datetime
 import alpaca_trade_api as tradeapi
 
 # =========================
-# 環境変数
+# 環境変数（安全チェック付き）
 # =========================
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
@@ -15,7 +15,13 @@ USER_ID = os.getenv("LINE_USER_ID")
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
-# ✅ PAPERトレード（安全）
+# ✅ エラー防止（ここ重要）
+if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+    print("❌ Alpaca APIキーが設定されていません")
+    exit()
+
+
+# ✅ Paperトレード
 api = tradeapi.REST(
     ALPACA_API_KEY,
     ALPACA_SECRET_KEY,
@@ -27,6 +33,10 @@ api = tradeapi.REST(
 # LINE送信
 # =========================
 def send_line(message):
+    if not LINE_TOKEN:
+        print("LINEトークンなし")
+        return
+
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
         "Authorization": f"Bearer {LINE_TOKEN}",
@@ -36,7 +46,6 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-
     requests.post(url, headers=headers, json=data)
 
 
@@ -46,16 +55,13 @@ def send_line(message):
 def get_symbols():
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
-    headers = {"User-Agent": "Mozilla/5.0"}
-
     try:
-        html = requests.get(url, headers=headers).text
+        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
         table = pd.read_html(html)[0]
-        symbols = table["Symbol"].tolist()
-        return [s.replace(".", "-") for s in symbols]
-
+        return [s.replace(".", "-") for s in table["Symbol"].tolist()]
     except:
-        return ["AAPL", "NVDA", "MSFT", "AMZN"]
+        print("⚠️ 銘柄取得失敗 → fallback")
+        return ["AAPL", "MSFT", "NVDA", "AMZN"]
 
 
 # =========================
@@ -103,22 +109,7 @@ def calc_indicators(df):
 
 
 # =========================
-# ファンダ
-# =========================
-def fundamental_check(info):
-    score = 0
-
-    if info:
-        if info.get("trailingPE") and info["trailingPE"] < 30:
-            score += 1
-        if info.get("revenueGrowth") and info["revenueGrowth"] > 0.1:
-            score += 1
-
-    return score
-
-
-# =========================
-# 買いロジック
+# 判定
 # =========================
 def buy_logic(df):
     latest = df.iloc[-1]
@@ -128,19 +119,14 @@ def buy_logic(df):
 
     if latest["SMA20"] > latest["SMA50"]:
         score += 1
-
     if latest["RSI"] < 35:
         score += 1
-
     if prev["MACD"] <= prev["Signal"] and latest["MACD"] > latest["Signal"]:
         score += 2
 
     return score
 
 
-# =========================
-# 売りロジック
-# =========================
 def sell_logic(df):
     latest = df.iloc[-1]
     prev = df.iloc[-2]
@@ -149,10 +135,8 @@ def sell_logic(df):
 
     if latest["RSI"] > 70:
         signals.append("RSI過熱")
-
     if prev["MACD"] >= prev["Signal"] and latest["MACD"] < latest["Signal"]:
         signals.append("MACDデッドクロス")
-
     if latest["close"] < latest["SMA20"]:
         signals.append("SMA割れ")
 
@@ -160,79 +144,37 @@ def sell_logic(df):
 
 
 # =========================
-# 戦略
-# =========================
-def entry_price(df):
-    return round(df.iloc[-1]["SMA20"], 2)
-
-
-def atr_stop(df, entry):
-    return round(entry - df.iloc[-1]["ATR"] * 2, 2)
-
-
-def take_profit(df):
-    return round(df["close"].rolling(20).max().iloc[-1], 2)
-
-
-def trailing(df):
-    return round(df["close"].rolling(10).max().iloc[-1] * 0.95, 2)
-
-
-# =========================
-# MAIN
+# メイン
 # =========================
 def main():
     print("🚀 START")
 
     messages = []
-    logs = []
 
     symbols = get_symbols()
+    symbols = random.sample(symbols, min(30, len(symbols)))
 
-    if len(symbols) > 50:
-        symbols = random.sample(symbols, 50)
+    # ✅ 保有株チェック
+    positions = [p.symbol for p in api.list_positions()]
 
-    candidates = []
-
-    # ✅ 動いてる銘柄抽出
     for symbol in symbols:
+
         df, info = get_data(symbol)
 
         if df is None or len(df) < 20:
             continue
 
-        try:
-            change = (df["close"].iloc[-1] - df["close"].iloc[-5]) / df["close"].iloc[-5]
-            candidates.append((symbol, change, df, info))
-        except:
-            continue
-
-    candidates = sorted(candidates, key=lambda x: x[1], reverse=True)[:15]
-
-    # ✅ 現在の保有銘柄取得（重複防止）
-    positions = [p.symbol for p in api.list_positions()]
-
-    for symbol, change, df, info in candidates:
-
         df = calc_indicators(df)
 
-        buy_score = buy_logic(df)
-        fund_score = fundamental_check(info)
+        total = buy_logic(df)
+        sell_signals = sell_logic(df)
 
-        total = buy_score + fund_score
         price = df.iloc[-1]["close"]
 
         # =====================
-        # ✅ BUY
+        # BUY
         # =====================
         if total >= 3 and symbol not in positions:
-            entry = entry_price(df)
-            sl = atr_stop(df, entry)
-            tp = take_profit(df)
-            ts = trailing(df)
-
-            messages.append(f"✅ BUY {symbol} {price}")
-
             try:
                 api.submit_order(
                     symbol=symbol,
@@ -241,20 +183,16 @@ def main():
                     type="market",
                     time_in_force="day"
                 )
-                print(f"{symbol} BUY成功")
+                print(f"✅ BUY: {symbol}")
+                messages.append(f"✅ BUY {symbol} {round(price,2)}")
 
             except Exception as e:
                 print("BUYエラー:", e)
 
         # =====================
-        # ✅ SELL
+        # SELL
         # =====================
-        sell_signals = sell_logic(df)
-
         if sell_signals and symbol in positions:
-
-            messages.append(f"⚠️ SELL {symbol}")
-
             try:
                 api.submit_order(
                     symbol=symbol,
@@ -263,22 +201,15 @@ def main():
                     type="market",
                     time_in_force="day"
                 )
-                print(f"{symbol} SELL成功")
+                print(f"⚠️ SELL: {symbol}")
+                messages.append(f"⚠️ SELL {symbol}")
 
             except Exception as e:
                 print("SELLエラー:", e)
 
-        logs.append([datetime.now(), symbol, total, price])
-
-    # ✅ ログ保存
-    if logs:
-        pd.DataFrame(logs, columns=["time", "symbol", "score", "price"]).to_csv(
-            "trade_log.csv", index=False
-        )
-
     # ✅ LINE通知
     if messages:
-        send_line("📊 自動売買BOT\n\n" + "\n".join(messages))
+        send_line("\n".join(messages))
     else:
         print("シグナルなし")
 
