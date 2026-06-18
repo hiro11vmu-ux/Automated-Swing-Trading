@@ -154,8 +154,8 @@ def calculate_entry(df):
 def main():
     messages = []
 
-    for symbol in SYMBOLS:
-    df, info = get_data(symbol)
+for symbol in SYMBOLS:
+    df, info = get_data(symbol)    
 
     if df is None:
         continue
