@@ -188,7 +188,7 @@ def main():
 
         price = df.iloc[-1]["close"]
 
-        # ✅ 買い
+        # ✅ 買い（←ここが重要：forの中！）
         if total >= 3:
             entry = entry_price(df)
             sl = atr_stop(df, entry)
@@ -202,3 +202,15 @@ def main():
 現在価格: {round(price,2)}
 指値: {entry}
 
+🎯 利確: {round(tp,2)}
+🛑 損切り(ATR): {round(sl,2)}
+📈 トレーリング: {round(ts,2)}
+"""
+            )
+
+    # ✅ これもmainの中
+    if messages:
+        send_line("📊 市場スキャン結果\n\n" + "\n".join(messages))
+    else:
+        print("シグナルなし")
+``
