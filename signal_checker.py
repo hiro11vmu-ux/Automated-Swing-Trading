@@ -22,32 +22,53 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-    requests.post(url, headers=headers, json=data)
+
+    res = requests.post(url, headers=headers, json=data)
+    print("LINE STATUS:", res.status_code)
 
 
 # =========================
-# S&P500取得
+# 銘柄取得（403対策）
 # =========================
 def get_symbols():
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    table = pd.read_html(url)[0]
-    symbols = table["Symbol"].tolist()
-    symbols = [s.replace(".", "-") for s in symbols]
-    return symbols
+
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    try:
+        html = requests.get(url, headers=headers).text
+        table = pd.read_html(html)[0]
+
+        symbols = table["Symbol"].tolist()
+        symbols = [s.replace(".", "-") for s in symbols]
+
+        return symbols
+
+    except Exception as e:
+        print("銘柄取得エラー:", e)
+
+        # ✅ フォールバック（落ちない設計）
+        return ["AAPL", "MSFT", "NVDA", "AMZN", "META"]
 
 
 # =========================
-# データ取得
+# データ
 # =========================
 def get_data(symbol):
-    stock = yf.Ticker(symbol)
-    df = stock.history(period="3mo")
+    try:
+        stock = yf.Ticker(symbol)
+        df = stock.history(period="3mo")
 
-    if df is None or df.empty:
+        if df is None or df.empty:
+            return None, None
+
+        df = df.rename(columns={"Close": "close"})
+        return df, stock.info
+
+    except:
         return None, None
-
-    df = df.rename(columns={"Close": "close"})
-    return df, stock.info
 
 
 # =========================
@@ -68,7 +89,7 @@ def calc_indicators(df):
     df["MACD"] = ema12 - ema26
     df["Signal"] = df["MACD"].ewm(span=9).mean()
 
-    # ATR
+    # ✅ ATR
     df["TR"] = (df["High"] - df["Low"]).abs()
     df["ATR"] = df["TR"].rolling(14).mean()
 
@@ -81,15 +102,15 @@ def calc_indicators(df):
 def fundamental_check(info):
     score = 0
 
-    if info:
-        pe = info.get("trailingPE")
-        growth = info.get("revenueGrowth")
+    try:
+        if info:
+            if info.get("trailingPE") and info["trailingPE"] < 30:
+                score += 1
 
-        if pe and pe < 30:
-            score += 1
-
-        if growth and growth > 0.1:
-            score += 1
+            if info.get("revenueGrowth") and info["revenueGrowth"] > 0.1:
+                score += 1
+    except:
+        pass
 
     return score
 
@@ -144,7 +165,8 @@ def entry_price(df):
 
 
 def atr_stop(df, entry):
-    return round(entry - df.iloc[-1]["ATR"] * 2, 2)
+    atr = df.iloc[-1]["ATR"]
+    return round(entry - atr * 2, 2)
 
 
 def take_profit(df):
@@ -159,27 +181,33 @@ def trailing(df):
 # MAIN
 # =========================
 def main():
+    print("🚀 START")
+
     messages = []
     logs = []
 
     symbols = get_symbols()
 
-    # ✅ 全体から50銘柄
-    symbols = random.sample(symbols, 50)
+    # ✅ 安全処理
+    if len(symbols) > 50:
+        symbols = random.sample(symbols, 50)
 
     candidates = []
 
-    # ✅ 動いてる銘柄選定
+    # ✅ 動いてる銘柄抽出
     for symbol in symbols:
         df, info = get_data(symbol)
 
         if df is None or len(df) < 20:
             continue
 
-        change = (df["close"].iloc[-1] - df["close"].iloc[-5]) / df["close"].iloc[-5]
-        candidates.append((symbol, change, df, info))
+        try:
+            change = (df["close"].iloc[-1] - df["close"].iloc[-5]) / df["close"].iloc[-5]
+            candidates.append((symbol, change, df, info))
+        except:
+            continue
 
-    # ✅ 上位15銘柄
+    # ✅ 上位抽出
     candidates = sorted(candidates, key=lambda x: x[1], reverse=True)[:15]
 
     for symbol, change, df, info in candidates:
@@ -192,9 +220,7 @@ def main():
         total = buy_score + fund_score
         price = df.iloc[-1]["close"]
 
-        # =====================
-        # BUY
-        # =====================
+        # ✅ BUY
         if total >= 3:
             entry = entry_price(df)
             sl = atr_stop(df, entry)
@@ -216,9 +242,7 @@ def main():
 
             logs.append([datetime.now(), symbol, "BUY", price])
 
-        # =====================
-        # SELL
-        # =====================
+        # ✅ SELL
         sell_signals = sell_logic(df)
 
         if sell_signals:
@@ -246,5 +270,8 @@ def main():
         print("シグナルなし")
 
 
+# =========================
+# 実行
+# =========================
 if __name__ == "__main__":
     main()
