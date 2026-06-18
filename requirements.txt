@@ -1,6 +1,6 @@
 requests
 pandas
 yfinance
+alpaca-trade-api
 lxml
 html5lib
-
