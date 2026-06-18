@@ -213,4 +213,3 @@ def main():
         send_line("📊 市場スキャン結果\n\n" + "\n".join(messages))
     else:
         print("シグナルなし")
-``
