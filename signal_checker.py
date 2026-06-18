@@ -3,9 +3,13 @@ import requests
 import os
 import pandas as pd
 
+# =============================
+# 環境変数
+# =============================
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
+# ✅ スキャン対象（市場代表）
 SYMBOLS = ["NVDA", "AAPL", "MSFT", "AMZN", "META"]
 
 
@@ -22,7 +26,9 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-    requests.post(url, headers=headers, json=data)
+
+    res = requests.post(url, headers=headers, json=data)
+    print("LINE STATUS:", res.status_code)
 
 
 # =============================
@@ -33,11 +39,10 @@ def get_data(symbol):
 
     df = stock.history(period="3mo")
 
-    if df.empty:
+    if df is None or df.empty:
         return None, None
 
     df = df.rename(columns={"Close": "close"})
-
     info = stock.info
 
     return df, info
@@ -67,42 +72,44 @@ def calc_indicators(df):
 
 
 # =============================
-# ファンダ判定
+# ファンダ
 # =============================
 def fundamental_check(info):
-    try:
-        pe = info.get("trailingPE", None)
-        growth = info.get("revenueGrowth", None)
+    score = 0
 
-        score = 0
-
-        if pe and pe < 30:
-            score += 1
-
-        if growth and growth > 0.1:
-            score += 1
-
-        return score
-
-    except:
+    if info is None:
         return 0
 
+    pe = info.get("trailingPE")
+    growth = info.get("revenueGrowth")
+
+    if pe and pe < 30:
+        score += 1
+
+    if growth and growth > 0.1:
+        score += 1
+
+    return score
+
 
 # =============================
-# テクニカル判定
+# テクニカル（買い）
 # =============================
-def technical_check(df):
+def buy_logic(df):
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
     score = 0
 
+    # SMA（トレンド）
     if latest["SMA20"] > latest["SMA50"]:
         score += 1
 
+    # RSI
     if latest["RSI"] < 35:
         score += 1
 
+    # MACDクロス
     if prev["MACD"] <= prev["Signal"] and latest["MACD"] > latest["Signal"]:
         score += 2
 
@@ -110,15 +117,35 @@ def technical_check(df):
 
 
 # =============================
-# 指値（買いポイント）
+# 売り（利確・反転）
+# =============================
+def sell_logic(df):
+    latest = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    signals = []
+
+    # RSI過熱
+    if latest["RSI"] > 70:
+        signals.append("RSI過熱")
+
+    # MACDデッドクロス
+    if prev["MACD"] >= prev["Signal"] and latest["MACD"] < latest["Signal"]:
+        signals.append("MACDデッドクロス")
+
+    # トレンド崩壊
+    if latest["close"] < latest["SMA20"]:
+        signals.append("SMA割れ")
+
+    return signals
+
+
+# =============================
+# エントリー（指値）
 # =============================
 def calculate_entry(df):
     latest = df.iloc[-1]
-
-    # ✅ 押し目（SMA20付近）
-    entry = latest["SMA20"]
-
-    return round(entry, 2)
+    return round(latest["SMA20"], 2)
 
 
 # =============================
@@ -135,36 +162,42 @@ def main():
 
         df = calc_indicators(df)
 
-        tech_score = technical_check(df)
+        buy_score = buy_logic(df)
         fund_score = fundamental_check(info)
 
-        total = tech_score + fund_score
+        total = buy_score + fund_score
 
-        # ✅ 厳選
+        price = df.iloc[-1]["close"]
+        entry = calculate_entry(df)
+
+        # ✅ 買い候補
         if total >= 3:
-            price = df.iloc[-1]["close"]
-            entry = calculate_entry(df)
-
             messages.append(
-                f"""
+                f"""✅ 買い候補
 {symbol}
-
-現在価格: {round(price,2)}
+現在価格: {round(price, 2)}
 指値目安: {entry}
+スコア: {total}
+"""
+            )
 
-テク: {tech_score}
-ファンダ: {fund_score}
+        # ✅ 売りシグナル
+        sell_signals = sell_logic(df)
 
-総合: ✅ 買い候補
+        if sell_signals:
+            messages.append(
+                f"""⚠️ 売りシグナル
+{symbol}
+現在価格: {round(price, 2)}
+理由: {", ".join(sell_signals)}
 """
             )
 
     if messages:
-        send_line("📊 厳選銘柄\n\n" + "\n".join(messages))
+        send_line("📊 市場スキャン結果\n\n" + "\n".join(messages))
     else:
-        print("対象なし")
+        print("シグナルなし")
 
 
 if __name__ == "__main__":
     main()
-``
