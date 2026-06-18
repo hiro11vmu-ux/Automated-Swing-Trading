@@ -1,9 +1,12 @@
 import requests
 import os
+import pandas as pd
 
+API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
+# --- LINE送信 ---
 def send_line(message):
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
@@ -14,19 +17,63 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-    res = requests.post(url, headers=headers, json=data)
-    print(res.text)
+    requests.post(url, headers=headers, json=data)
 
-def main():
-    print("START")
-    print("TOKEN:", LINE_TOKEN)
-    print("USER:", USER_ID)
+# --- データ取得 ---
+def get_data():
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=AGIX&apikey={API_KEY}"
+    r = requests.get(url).json()
+    ts = r["Time Series (Daily)"]
 
-    if not LINE_TOKEN or not USER_ID:
-        print("❌ SECRET missing")
-        return
+    df = pd.DataFrame.from_dict(ts, orient="index")
+    df = df.rename(columns={"4. close": "close"})
+    df["close"] = df["close"].astype(float)
+    df = df.sort_index()
 
-    send_line("✅ テスト成功")
+    return df
 
-if __name__ == "__main__":
-    main()
+# --- 指標計算 ---
+def calc_indicators(df):
+    # SMA
+    df["SMA20"] = df["close"].rolling(20).mean()
+    df["SMA50"] = df["close"].rolling(50).mean()
+
+    # RSI
+    delta = df["close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD
+    ema12 = df["close"].ewm(span=12).mean()
+    ema26 = df["close"].ewm(span=26).mean()
+    df["MACD"] = ema12 - ema26
+    df["Signal"] = df["MACD"].ewm(span=9).mean()
+
+    return df
+
+# --- 判定 ---
+def signal_logic(df):
+    latest = df.iloc[-1]
+
+    score = 0
+
+    # SMA
+    if latest["SMA20"] > latest["SMA50"]:
+        score += 1
+        sma = "強気"
+    else:
+        sma = "弱気"
+
+    # RSI
+    if latest["RSI"] < 30:
+        score += 1
+        rsi = "買い"
+    elif latest["RSI"] > 70:
+        rsi = "売り"
+    else:
+        rsi = "中立"
+
+    # MACD
+    if latest["MACD"] > latest["Signal"]:
