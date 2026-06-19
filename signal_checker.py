@@ -23,44 +23,5 @@ def get_symbols():
         url_400 = "https://en.wikipedia.org/wiki/List_of_S%26P_MidCap_400_companies"
         s500 = pd.read_html(url_500, flavor='lxml')[0]['Symbol'].tolist()
         s400 = pd.read_html(url_400, flavor='lxml')[0]['Symbol'].tolist()
-        return [s.replace('.', '-') for s in list(set(s500 + s400))]
-    except: return ["AAPL", "NVDA", "MSFT"]
-
-def main():
-    symbols = random.sample(get_symbols(), 50)
-    balance = float(client.get_account().cash)
-    positions = {p.symbol: int(p.qty) for p in client.get_all_positions()}
-    messages = []
-
-    for symbol in symbols:
-        df = yf.Ticker(symbol).history(period="1y")
-        if df.empty: continue
-        
-        df["SMA50"] = df["Close"].rolling(50).mean()
-        df["SMA200"] = df["Close"].rolling(200).mean()
-        latest, prev = df.iloc[-1], df.iloc[-2]
-        price = float(latest["Close"])
-
-        # BUY
-        if symbol not in positions and prev["SMA50"] <= prev["SMA200"] and latest["SMA50"] > latest["SMA200"]:
-            qty = int((balance * 0.01) / price)
-            if qty > 0:
-                client.submit_order(MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
-                messages.append(f"✅ BUY {symbol}")
-        
-        # SELL
-        elif symbol in positions:
-            pos = client.get_open_position(symbol)
-            if price < float(pos.avg_entry_price) * 0.90 or (prev["SMA50"] >= prev["SMA200"] and latest["SMA50"] < latest["SMA200"]):
-                client.close_position(symbol)
-                messages.append(f"⚠️ SELL {symbol}")
-        
-        time.sleep(0.5)
-
-    if messages:
-        requests.post("https://api.line.me/v2/bot/message/push", 
-                      headers={"Authorization": f"Bearer {LINE_TOKEN}"}, 
-                      json={"to": USER_ID, "messages": [{"type":"text","text":"\n".join(messages)}]})
-
-if __name__ == "__main__":
-    main()
+        symbols = list(set([s.replace('.', '-') for s in (s500 + s400)]))
+        print(f"取得した銘柄数: {
