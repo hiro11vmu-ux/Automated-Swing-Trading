@@ -23,24 +23,22 @@ def get_symbols():
         s500 = pd.read_html(url_500, flavor='lxml')[0]['Symbol'].tolist()
         s400 = pd.read_html(url_400, flavor='lxml')[0]['Symbol'].tolist()
         symbols = list(set([s.replace('.', '-') for s in (s500 + s400)]))
-        print("取得した銘柄数: " + str(len(symbols)))
         return symbols
-    except Exception as e:
-        print("銘柄取得エラー: " + str(e))
+    except:
         return ["AAPL", "NVDA", "MSFT", "AMZN", "GOOGL"]
 
 def main():
     all_symbols = get_symbols()
-    num_to_sample = min(50, len(all_symbols))
+    # 監視銘柄を10社に絞る
+    num_to_sample = min(10, len(all_symbols))
     symbols = random.sample(all_symbols, num_to_sample)
     
     try:
         balance = float(client.get_account().cash)
-    except Exception as e:
-        print("口座情報の取得エラー: " + str(e))
+    except:
         return
 
-    positions = {p.symbol: int(p.qty) for p in client.get_all_positions()}
+    positions = {p.symbol: float(p.qty) for p in client.get_all_positions()}
     messages = []
 
     for symbol in symbols:
@@ -52,12 +50,14 @@ def main():
         latest, prev = df.iloc[-1], df.iloc[-2]
         price = float(latest["Close"])
 
+        # BUY: 資金の10%で端株購入
         if symbol not in positions and prev["SMA50"] <= prev["SMA200"] and latest["SMA50"] > latest["SMA200"]:
-            qty = int((balance * 0.01) / price)
+            qty = round((balance * 0.10) / price, 4)
             if qty > 0:
                 client.submit_order(MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
-                messages.append("✅ BUY " + symbol)
+                messages.append("✅ BUY " + symbol + " (qty: " + str(qty) + ")")
         
+        # SELL
         elif symbol in positions:
             try:
                 pos = client.get_open_position(symbol)
