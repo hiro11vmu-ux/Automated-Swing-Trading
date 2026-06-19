@@ -1,4 +1,6 @@
-requests
-pandas
 yfinance
+pandas
 alpaca-trade-api
+requests
+lxml
+html5lib
