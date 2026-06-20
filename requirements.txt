@@ -4,3 +4,4 @@ alpaca-py
 requests
 lxml
 html5lib
+streamlit
