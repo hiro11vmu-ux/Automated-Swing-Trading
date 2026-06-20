@@ -19,24 +19,24 @@ else:
         client = TradingClient(API_KEY, SECRET_KEY, paper=True)
         account = client.get_account()
 
-        # 損益サマリーの計算
+        # 1. 損益サマリー（購買力を削除、本日の損益％を表示）
         equity = float(account.equity)
         last_equity = float(account.last_equity)
         today_pl = equity - last_equity
-        # 本日の損益率 (%) = (本日の損益 / 前日終了時の資産) * 100
         today_pl_percent = (today_pl / last_equity * 100) if last_equity != 0 else 0
 
-        # 1. 損益サマリー（購買力を消して2列に）
         col1, col2 = st.columns(2)
         col1.metric("総資産額", f"${equity:,.2f}")
         col2.metric("本日の損益", f"${today_pl:,.2f}", f"{today_pl_percent:+.2f}%")
 
         st.markdown("---")
 
-        # 2. ポートフォリオ推移チャート
+        # 2. ポートフォリオ推移チャート（日付軸の最適化）
         st.subheader("ポートフォリオ資産推移（1ヶ月）")
         history = client.get_portfolio_history(GetPortfolioHistoryRequest(period="1M"))
-        df_history = pd.DataFrame({'Date': history.timestamp, 'Equity': history.equity})
+        
+        # タイムスタンプをdatetime型に変換して横軸を修正
+        df_history = pd.DataFrame({'Date': pd.to_datetime(history.timestamp, unit='s'), 'Equity': history.equity})
         df_history.set_index('Date', inplace=True)
         st.line_chart(df_history['Equity'])
 
