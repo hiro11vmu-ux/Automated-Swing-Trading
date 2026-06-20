@@ -19,17 +19,17 @@ else:
         client = TradingClient(API_KEY, SECRET_KEY, paper=True)
         account = client.get_account()
 
-        # 1. 損益サマリー
-        col1, col2, col3 = st.columns(3)
-        col1.metric("総資産額", f"${float(account.equity):,.2f}")
-        
-        # 本日の損益（計算式）
-        today_pl = float(account.equity) - float(account.last_equity)
-        col2.metric("本日の損益", f"${today_pl:,.2f}")
-        
-        # 累計損益（現時点での含み損益の合計と、過去の実現損益の合計を想定）
-        # ※正確な累計にはデータベース等の記録が必要ですが、今回は直近のequityで表示します
-        col3.metric("購買力", f"${float(account.buying_power):,.2f}")
+        # 損益サマリーの計算
+        equity = float(account.equity)
+        last_equity = float(account.last_equity)
+        today_pl = equity - last_equity
+        # 本日の損益率 (%) = (本日の損益 / 前日終了時の資産) * 100
+        today_pl_percent = (today_pl / last_equity * 100) if last_equity != 0 else 0
+
+        # 1. 損益サマリー（購買力を消して2列に）
+        col1, col2 = st.columns(2)
+        col1.metric("総資産額", f"${equity:,.2f}")
+        col2.metric("本日の損益", f"${today_pl:,.2f}", f"{today_pl_percent:+.2f}%")
 
         st.markdown("---")
 
@@ -40,28 +40,25 @@ else:
         df_history.set_index('Date', inplace=True)
         st.line_chart(df_history['Equity'])
 
-        # 3. ポジション情報（パーセント表示対応）
+        # 3. ポジション情報（パーセント表示）
         st.subheader("現在の保有銘柄詳細")
         positions = client.get_all_positions()
         
         if positions:
             data = []
             for p in positions:
-                # パーセントの計算: (未実現損益 / (数量 * 取得単価)) * 100
                 cost = float(p.qty) * float(p.avg_entry_price)
                 pl_percent = (float(p.unrealized_pl) / cost * 100) if cost != 0 else 0
                 
                 data.append({
                     "銘柄": p.symbol,
                     "数量": p.qty,
-                    "取得単価": f"${float(p.avg_entry_price):.2f}",
-                    "評価額": f"${float(p.market_value):.2f}",
-                    "損益($)": f"${float(p.unrealized_pl):.2f}",
+                    "評価損益($)": f"${float(p.unrealized_pl):,.2f}",
                     "損益率(%)": f"{pl_percent:+.2f}%"
                 })
             st.table(pd.DataFrame(data))
         else:
-            st.info("現在、保有ポジションはありません。")
+            st.info("現在ポジションはありません。")
 
     except Exception as e:
         st.error(f"データの取得中にエラーが発生しました: {e}")
