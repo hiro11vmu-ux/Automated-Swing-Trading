@@ -1,35 +1,59 @@
 import streamlit as st
 import pandas as pd
-import os
+import yfinance as yf
 from alpaca.trading.client import TradingClient
+import os
 
 # ページ設定
 st.set_page_config(page_title="Trading Dashboard", layout="wide")
+st.title("📈 自動売買ボット ダッシュボード")
 
-# 環境変数からAPIキーを取得
+# APIキー取得
 API_KEY = os.getenv("ALPACA_API_KEY")
 SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
-st.title("📈 自動売買ボット ダッシュボード")
-
-# アルパカ接続チェック
 if not API_KEY or not SECRET_KEY:
-    st.error("APIキーが設定されていません。環境変数を確認してください。")
+    st.error("APIキーが設定されていません。StreamlitのSecretsを確認してください。")
 else:
-    client = TradingClient(API_KEY, SECRET_KEY, paper=True)
-
-    # ポジション情報の取得
     try:
+        client = TradingClient(API_KEY, SECRET_KEY, paper=True)
+        account = client.get_account()
+
+        # 1. 損益サマリー
+        col1, col2, col3 = st.columns(3)
+        col1.metric("総資産額", f"${float(account.equity):,.2f}")
+        col2.metric("本日の損益", f"${float(account.today_pl):,.2f}")
+        col3.metric("購買力", f"${float(account.buying_power):,.2f}")
+
+        st.markdown("---")
+
+        # 2. ポジション情報の詳細表
+        st.subheader("現在の保有銘柄")
         positions = client.get_all_positions()
+        
         if positions:
-            data = [{"銘柄": p.symbol, "保有数": p.qty, "評価損益": f"{p.unrealized_pl}ドル"} for p in positions]
+            data = []
+            for p in positions:
+                data.append({
+                    "銘柄": p.symbol,
+                    "数量": p.qty,
+                    "取得単価": float(p.avg_entry_price),
+                    "評価額": float(p.market_value),
+                    "評価損益($)": float(p.unrealized_pl)
+                })
             df = pd.DataFrame(data)
             st.table(df)
+
+            # 3. 銘柄を選択してチャートを表示
+            st.subheader("チャート分析")
+            selected_symbol = st.selectbox("チャートを表示する銘柄を選択してください", df["銘柄"].tolist())
+            
+            # yfinanceで過去1ヶ月のデータを取得
+            hist = yf.Ticker(selected_symbol).history(period="1mo")
+            st.line_chart(hist["Close"])
+            
         else:
             st.info("現在、保有ポジションはありません。")
-    except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
 
-# 最新の株価確認用（必要であれば追加）
-st.subheader("システム状況")
-st.write("ボットは正常に稼働しています。")
+    except Exception as e:
+        st.error(f"データの取得中にエラーが発生しました: {e}")
