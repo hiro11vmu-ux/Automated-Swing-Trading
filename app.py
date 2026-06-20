@@ -19,10 +19,14 @@ else:
         client = TradingClient(API_KEY, SECRET_KEY, paper=True)
         account = client.get_account()
 
-        # 1. 損益サマリー
+        # 1. 損益サマリー（計算式でエラーを回避）
         col1, col2, col3 = st.columns(3)
         col1.metric("総資産額", f"${float(account.equity):,.2f}")
-        col2.metric("本日の損益", f"${float(account.today_pl):,.2f}")
+        
+        # today_plを使わず、現在純資産と前日終了純資産の差分で計算
+        today_pl = float(account.equity) - float(account.last_equity)
+        col2.metric("本日の損益", f"${today_pl:,.2f}")
+        
         col3.metric("購買力", f"${float(account.buying_power):,.2f}")
 
         st.markdown("---")
