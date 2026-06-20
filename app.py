@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px  # 円グラフ用にインポート
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetPortfolioHistoryRequest
 import os
@@ -13,13 +14,13 @@ API_KEY = os.getenv("ALPACA_API_KEY")
 SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
 if not API_KEY or not SECRET_KEY:
-    st.error("APIキーが設定されていません。StreamlitのSecretsを確認してください。")
+    st.error("APIキーが設定されていません。")
 else:
     try:
         client = TradingClient(API_KEY, SECRET_KEY, paper=True)
         account = client.get_account()
 
-        # 1. 損益サマリー（購買力を削除、本日の損益％を表示）
+        # 1. 損益サマリー
         equity = float(account.equity)
         last_equity = float(account.last_equity)
         today_pl = equity - last_equity
@@ -31,34 +32,36 @@ else:
 
         st.markdown("---")
 
-        # 2. ポートフォリオ推移チャート（日付軸の最適化）
-        st.subheader("ポートフォリオ資産推移（1ヶ月）")
-        history = client.get_portfolio_history(GetPortfolioHistoryRequest(period="1M"))
-        
-        # タイムスタンプをdatetime型に変換して横軸を修正
-        df_history = pd.DataFrame({'Date': pd.to_datetime(history.timestamp, unit='s'), 'Equity': history.equity})
-        df_history.set_index('Date', inplace=True)
-        st.line_chart(df_history['Equity'])
-
-        # 3. ポジション情報（パーセント表示）
-        st.subheader("現在の保有銘柄詳細")
+        # ポジションデータの取得（共通）
         positions = client.get_all_positions()
         
         if positions:
             data = []
             for p in positions:
+                market_value = float(p.market_value)
                 cost = float(p.qty) * float(p.avg_entry_price)
                 pl_percent = (float(p.unrealized_pl) / cost * 100) if cost != 0 else 0
-                
                 data.append({
                     "銘柄": p.symbol,
-                    "数量": p.qty,
-                    "評価損益($)": f"${float(p.unrealized_pl):,.2f}",
-                    "損益率(%)": f"{pl_percent:+.2f}%"
+                    "評価額": market_value,
+                    "損益率(%)": pl_percent
                 })
-            st.table(pd.DataFrame(data))
+            df = pd.DataFrame(data)
+
+            # グラフエリアを左右に分割
+            col_chart, col_table = st.columns([1, 1])
+
+            with col_chart:
+                st.subheader("ポートフォリオ構成比")
+                fig = px.pie(df, values='評価額', names='銘柄', hole=0.3) # ドーナツグラフ
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col_table:
+                st.subheader("保有銘柄詳細")
+                st.table(df[['銘柄', '評価額', '損益率(%)']].style.format({"評価額": "${:,.2f}", "損益率(%)": "{:+.2f}%"}))
+        
         else:
             st.info("現在ポジションはありません。")
 
     except Exception as e:
-        st.error(f"データの取得中にエラーが発生しました: {e}")
+        st.error(f"エラー: {e}")
