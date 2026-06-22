@@ -21,12 +21,16 @@ USER_ID = os.getenv("LINE_USER_ID")
 client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 
 def get_symbols():
-    # CSVから全銘柄を読み込む
-    df = pd.read_csv("holdings.csv")
+    # 元ファイル(skiprows=4でメタデータをスキップ)を読み込み
+    df = pd.read_csv("holdings.csv", skiprows=4)
+    # Ticker列から空データを除去し、重複を省く
     all_symbols = df["Ticker"].dropna().unique().tolist()
-    # 除外対象（ETF自身や無効なシンボル）を省く
-    all_symbols = [s for s in all_symbols if s not in ["SPSM", "US DOLLAR", "-"]]
-    # ランダムに50銘柄を抽出
+    
+    # ノイズとなる文字列を除外
+    exclude_list = ["SPSM", "US DOLLAR", "-", ""]
+    all_symbols = [s for s in all_symbols if s not in exclude_list and not str(s).startswith("E-MINI")]
+    
+    # 毎日50銘柄をランダムに選定して広範囲を監視
     return random.sample(all_symbols, min(len(all_symbols), 50))
 
 def is_market_open():
@@ -61,18 +65,18 @@ def main():
             df["Signal"] = macd.macd_signal()
             latest = df.iloc[-1]
             
-            # 買いロジック
+            # 買いロジック: RSI40未満 かつ MACDゴールデンクロス
             if symbol not in positions and latest["RSI"] < 40 and latest["MACD"] > latest["Signal"]:
                 client.submit_order(MarketOrderRequest(symbol=symbol, qty=1, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
                 messages.append(f"✅ BUY {symbol}")
             
-            # トレーリングストップによる売りロジック
+            # 売りロジック: -5% トレーリングストップ
             elif symbol in positions:
                 pos = client.get_open_position(symbol)
                 if float(latest["Close"]) <= float(pos.avg_entry_price) * 0.95:
                     client.close_position(symbol)
                     messages.append(f"⚠️ SELL (Trailing Stop) {symbol}")
-        except Exception as e:
+        except Exception:
             continue
 
     if messages: send_line("\n".join(messages))
