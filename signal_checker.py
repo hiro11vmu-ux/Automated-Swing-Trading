@@ -25,7 +25,6 @@ def main():
     print("DEBUG: ボット開始")
     symbols = ["AAPL", "NVDA", "MSFT", "AMZN", "GOOGL"]
     
-    # ポジションと残高の取得
     try:
         balance = float(client.get_account().cash)
         positions = {p.symbol: float(p.qty) for p in client.get_all_positions()}
@@ -35,9 +34,8 @@ def main():
 
     messages = []
     
-    # 売買ロジック
     for symbol in symbols:
-        time.sleep(random.uniform(2.0, 4.0)) # 負荷軽減
+        time.sleep(random.uniform(2.0, 4.0))
         ticker = yf.Ticker(symbol)
         df = ticker.history(period="1y")
         if df.empty: continue
@@ -47,25 +45,22 @@ def main():
         latest, prev = df.iloc[-1], df.iloc[-2]
         price = float(latest["Close"])
 
-        # 買い条件（ゴールデンクロス）
         if symbol not in positions and prev["SMA50"] <= prev["SMA200"] and latest["SMA50"] > latest["SMA200"]:
             qty = round((balance * 0.10) / price, 4)
             client.submit_order(MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
             messages.append(f"✅ BUY {symbol}")
         
-        # 売り条件
         elif symbol in positions:
             pos = client.get_open_position(symbol)
             if price < float(pos.avg_entry_price) * 0.90 or (prev["SMA50"] >= prev["SMA200"] and latest["SMA50"] < latest["SMA200"]):
                 client.close_position(symbol)
                 messages.append(f"⚠️ SELL {symbol}")
 
-    # 通知処理
+    # 【重要】取引があった時のみ通知するようにしました
     if messages:
         send_line("【取引通知】\n" + "\n".join(messages))
     else:
-        # 生存確認：30分に1回通知されるのがうるさい場合は、ここはコメントアウトしてください
-        send_line("【ボット稼働中】\n条件合致なし。監視を継続しています。")
+        print("DEBUG: 取引なし（通知オフ）")
 
 if __name__ == "__main__":
     main()
