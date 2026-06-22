@@ -1,6 +1,9 @@
-yfinance
+streamlit
 pandas
+yfinance
+ta
+pandas-market-calendars
+pytz
 alpaca-py
+plotly
 requests
-pandas_market_calendars
-pandas_ta
