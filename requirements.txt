@@ -6,3 +6,4 @@ lxml
 html5lib
 streamlit
 plotly
+pandas_market_calendars
