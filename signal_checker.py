@@ -21,17 +21,16 @@ USER_ID = os.getenv("LINE_USER_ID")
 client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 
 def get_symbols():
-    # header=4 を指定して5行目を列名として認識させる
-    # 元ファイルの文字コードは Shift-JIS と判明したため指定
+    # 5行目(header=4)から読み込み、Shift-JISで解析
     df = pd.read_csv("holdings.csv", header=4, encoding='shift_jis')
     
-    # Ticker列を抽出（余計な空白を除去）
-    df.columns = df.columns.str.strip()
-    all_symbols = df["Ticker"].dropna().astype(str).tolist()
+    # 2列目(Ticker列)を確実に指定して抽出
+    ticker_col = df.columns[1] 
+    all_symbols = df[ticker_col].dropna().astype(str).tolist()
     
-    # ノイズ除外
-    exclude_list = ["SPSM", "US DOLLAR", "-", "nan"]
-    all_symbols = [s.strip() for s in all_symbols if s not in exclude_list and not s.startswith("E-MINI")]
+    # 不要な記号や無効なデータを徹底的に除外
+    exclude_list = ["SPSM", "US DOLLAR", "-", "nan", "Ticker"]
+    all_symbols = [s.strip() for s in all_symbols if s not in exclude_list and not s.startswith("E-MINI") and len(s) > 0]
     
     # 50銘柄ランダム抽出
     return random.sample(all_symbols, min(len(all_symbols), 50))
