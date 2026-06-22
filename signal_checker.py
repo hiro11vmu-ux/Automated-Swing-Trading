@@ -21,20 +21,19 @@ USER_ID = os.getenv("LINE_USER_ID")
 client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 
 def get_symbols():
-    # encoding='shift_jis' を指定し、4行スキップして読み込む
-    df = pd.read_csv("holdings.csv", skiprows=4, encoding='shift_jis')
+    # header=4 を指定して5行目を列名として認識させる
+    # 元ファイルの文字コードは Shift-JIS と判明したため指定
+    df = pd.read_csv("holdings.csv", header=4, encoding='shift_jis')
     
-    # カラム名の空白除去
+    # Ticker列を抽出（余計な空白を除去）
     df.columns = df.columns.str.strip()
+    all_symbols = df["Ticker"].dropna().astype(str).tolist()
     
-    # "Ticker" 列を抽出
-    all_symbols = df["Ticker"].dropna().unique().tolist()
+    # ノイズ除外
+    exclude_list = ["SPSM", "US DOLLAR", "-", "nan"]
+    all_symbols = [s.strip() for s in all_symbols if s not in exclude_list and not s.startswith("E-MINI")]
     
-    # 不要な項目を除外
-    exclude_list = ["SPSM", "US DOLLAR", "-", ""]
-    all_symbols = [str(s).strip() for s in all_symbols if s not in exclude_list and not str(s).startswith("E-MINI")]
-    
-    # ランダムに50銘柄を抽出
+    # 50銘柄ランダム抽出
     return random.sample(all_symbols, min(len(all_symbols), 50))
 
 def is_market_open():
@@ -53,14 +52,14 @@ def send_line(message):
 def main():
     if not is_market_open(): return
     
-    symbols = get_symbols()
     try:
+        symbols = get_symbols()
         positions = {p.symbol: float(p.qty) for p in client.get_all_positions()}
-    except:
-        positions = {}
+    except Exception as e:
+        print(f"Error in init: {e}")
+        return
         
     messages = []
-
     for symbol in symbols:
         time.sleep(random.uniform(1.0, 2.0))
         try:
@@ -74,12 +73,9 @@ def main():
             df["Signal"] = macd.macd_signal()
             latest = df.iloc[-1]
             
-            # 買いロジック
             if symbol not in positions and latest["RSI"] < 40 and latest["MACD"] > latest["Signal"]:
                 client.submit_order(MarketOrderRequest(symbol=symbol, qty=1, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
                 messages.append(f"✅ BUY {symbol}")
-            
-            # 売りロジック
             elif symbol in positions:
                 pos = client.get_open_position(symbol)
                 if float(latest["Close"]) <= float(pos.avg_entry_price) * 0.95:
