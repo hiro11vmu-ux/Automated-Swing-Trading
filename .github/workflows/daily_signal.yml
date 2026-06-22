@@ -1,32 +1,5 @@
-name: Trading Bot
-
-on:
-  schedule:
-    - cron: '30 13-20 * * *'
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
+- name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install --only-binary :all: numpy pandas
-          pip install yfinance requests pandas_market_calendars ta alpaca-py
-
-      - name: Run bot
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        run: python signal_checker.py
+          pip install yfinance requests pandas_market_calendars ta alpaca-py pytz
