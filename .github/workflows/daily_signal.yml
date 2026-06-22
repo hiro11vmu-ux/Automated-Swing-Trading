@@ -2,7 +2,6 @@ name: Trading Bot
 
 on:
   schedule:
-    # 毎日 日本時間 22:30 〜 05:30 (UTC 13:30 〜 20:30) の間、30分おきに実行
     - cron: '30 13-20 * * *'
   workflow_dispatch:
 
@@ -21,9 +20,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          # numbaのビルドを避けるため、コンパイル済みバイナリを優先的にインストール
           pip install --only-binary :all: numpy pandas
-          pip install yfinance requests pandas_market_calendars pandas_ta alpaca-py
+          pip install yfinance requests pandas_market_calendars ta alpaca-py
 
       - name: Run bot
         env:
