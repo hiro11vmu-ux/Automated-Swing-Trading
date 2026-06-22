@@ -32,7 +32,6 @@ def send_line(message):
         print(f"DEBUG: LINE送信エラー: {e}")
 
 def get_symbols():
-    # 銘柄数をあえて少なくし、安定性を確保します
     return ["AAPL", "NVDA", "MSFT", "AMZN", "GOOGL"]
 
 def main():
@@ -51,9 +50,7 @@ def main():
     for symbol in symbols:
         print(f"DEBUG: {symbol} 解析中...")
         try:
-            # アクセス制限を回避するための待機
             time.sleep(random.uniform(5.0, 8.0))
-            
             ticker = yf.Ticker(symbol)
             df = ticker.history(period="1y")
             if df.empty: continue
@@ -63,13 +60,14 @@ def main():
             latest, prev = df.iloc[-1], df.iloc[-2]
             price = float(latest["Close"])
 
-            # 売買ロジック
+            # BUY条件
             if symbol not in positions and prev["SMA50"] <= prev["SMA200"] and latest["SMA50"] > latest["SMA200"]:
                 qty = round((balance * 0.10) / price, 4)
                 if qty > 0:
                     client.submit_order(MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
                     messages.append(f"✅ BUY {symbol}")
             
+            # SELL条件
             elif symbol in positions:
                 pos = client.get_open_position(symbol)
                 if price < float(pos.avg_entry_price) * 0.90 or (prev["SMA50"] >= prev["SMA200"] and latest["SMA50"] < latest["SMA200"]):
@@ -80,10 +78,11 @@ def main():
             print(f"DEBUG: {symbol} 処理中にエラー: {e}")
             continue
 
+    # 通知ロジック：取引があればそれを、なければ稼働確認を送る
     if messages:
-        send_line("\n".join(messages))
+        send_line("【取引通知】\n" + "\n".join(messages))
     else:
-        print("DEBUG: 取引条件合致なし")
+        send_line("【ボット稼働確認】\n本日の監視完了。現在条件に合致する銘柄はありません。")
 
 if __name__ == "__main__":
     main()
