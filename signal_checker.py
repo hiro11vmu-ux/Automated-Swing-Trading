@@ -8,7 +8,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 
-# 設定（GitHubのSecretsから取得）
+# 設定
 API_KEY = os.getenv("ALPACA_API_KEY")
 SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 LINE_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -17,7 +17,6 @@ USER_ID = os.getenv("LINE_USER_ID")
 client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 
 def send_line(message):
-    """Messaging APIを使ってLINEにプッシュ通知を送る"""
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
         "Authorization": f"Bearer {LINE_TOKEN}",
@@ -27,11 +26,14 @@ def send_line(message):
         "to": USER_ID,
         "messages": [{"type": "text", "text": message}]
     }
-    response = requests.post(url, headers=headers, json=payload)
-    print(f"DEBUG: LINE通知結果: {response.status_code}, {response.text}")
+    try:
+        requests.post(url, headers=headers, json=payload)
+    except Exception as e:
+        print(f"DEBUG: LINE送信エラー: {e}")
 
 def get_symbols():
-    return ["AAPL", "NVDA", "MSFT", "AMZN", "GOOGL", "TSLA", "META", "AMD", "NFLX", "INTC"]
+    # 銘柄数をあえて少なくし、安定性を確保します
+    return ["AAPL", "NVDA", "MSFT", "AMZN", "GOOGL"]
 
 def main():
     print("DEBUG: ボット開始")
@@ -40,41 +42,48 @@ def main():
     try:
         balance = float(client.get_account().cash)
     except Exception as e:
-        print(f"DEBUG: Alpaca接続エラー: {e}")
+        print(f"DEBUG: Alpacaエラー: {e}")
         return
 
     positions = {p.symbol: float(p.qty) for p in client.get_all_positions()}
     messages = []
 
     for symbol in symbols:
-        df = yf.Ticker(symbol).history(period="1y")
-        if df.empty: continue
-        
-        df["SMA50"] = df["Close"].rolling(50).mean()
-        df["SMA200"] = df["Close"].rolling(200).mean()
-        latest, prev = df.iloc[-1], df.iloc[-2]
-        price = float(latest["Close"])
+        print(f"DEBUG: {symbol} 解析中...")
+        try:
+            # アクセス制限を回避するための待機
+            time.sleep(random.uniform(5.0, 8.0))
+            
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period="1y")
+            if df.empty: continue
+            
+            df["SMA50"] = df["Close"].rolling(50).mean()
+            df["SMA200"] = df["Close"].rolling(200).mean()
+            latest, prev = df.iloc[-1], df.iloc[-2]
+            price = float(latest["Close"])
 
-        # BUY条件
-        if symbol not in positions and prev["SMA50"] <= prev["SMA200"] and latest["SMA50"] > latest["SMA200"]:
-            qty = round((balance * 0.10) / price, 4)
-            if qty > 0:
-                client.submit_order(MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
-                messages.append(f"✅ BUY {symbol}")
-        
-        # SELL条件
-        elif symbol in positions:
-            try:
+            # 売買ロジック
+            if symbol not in positions and prev["SMA50"] <= prev["SMA200"] and latest["SMA50"] > latest["SMA200"]:
+                qty = round((balance * 0.10) / price, 4)
+                if qty > 0:
+                    client.submit_order(MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
+                    messages.append(f"✅ BUY {symbol}")
+            
+            elif symbol in positions:
                 pos = client.get_open_position(symbol)
                 if price < float(pos.avg_entry_price) * 0.90 or (prev["SMA50"] >= prev["SMA200"] and latest["SMA50"] < latest["SMA200"]):
                     client.close_position(symbol)
                     messages.append(f"⚠️ SELL {symbol}")
-            except: pass
+        
+        except Exception as e:
+            print(f"DEBUG: {symbol} 処理中にエラー: {e}")
+            continue
 
     if messages:
         send_line("\n".join(messages))
     else:
-        print("DEBUG: 取引条件に合致なし")
+        print("DEBUG: 取引条件合致なし")
 
 if __name__ == "__main__":
     main()
