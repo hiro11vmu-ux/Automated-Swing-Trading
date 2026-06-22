@@ -5,7 +5,7 @@ import time
 import random
 import datetime
 import pandas as pd
-import pandas_ta as ta
+import ta  # pandas_taの代わりにtaライブラリを使用
 import pandas_market_calendars as mcal
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
@@ -41,14 +41,15 @@ def main():
 
     for symbol in symbols:
         time.sleep(random.uniform(3.0, 5.0))
-        df = yf.Ticker(symbol).history(period="6mo")
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="6mo")
         if df.empty: continue
         
-        # 指標計算
-        df["RSI"] = ta.rsi(df["Close"], length=14)
-        macd = ta.macd(df["Close"])
-        df["MACD"] = macd.iloc[:, 0]
-        df["Signal"] = macd.iloc[:, 2]
+        # taライブラリによる指標計算
+        df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
+        macd = ta.trend.MACD(df["Close"])
+        df["MACD"] = macd.macd()
+        df["Signal"] = macd.macd_signal()
         
         latest = df.iloc[-1]
         
@@ -61,7 +62,6 @@ def main():
         elif symbol in positions:
             pos = client.get_open_position(symbol)
             avg_entry = float(pos.avg_entry_price)
-            # 現在値が買値から5%下落したら決済
             if float(latest["Close"]) <= avg_entry * 0.95:
                 client.close_position(symbol)
                 messages.append(f"⚠️ SELL (Trailing Stop) {symbol}")
